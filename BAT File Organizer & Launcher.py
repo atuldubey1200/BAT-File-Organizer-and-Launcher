@@ -2,13 +2,16 @@
 # Author: Atul Kumar Dubey
 # GitHub: atuldubey1200
 #
-# Based on your working JSON-load version.
-# Updates in this version:
-# - Entries stretch across the full window width.
-# - Description field is wider and expands with window size.
-# - Developer field also expands slightly.
-# - Column headers align with the row widgets.
-# - Uses the same working BAT launch method:
+# Window-adjustable version:
+# - Columns automatically resize with the window.
+# - Description box expands/shrinks based on available window width.
+# - Entries stretch to the full visible window.
+# - No forced huge left-right table width.
+# - Horizontal scrollbar appears only when the window becomes too small.
+# - Based on your working JSON-load version.
+# - Adds visible right-side up/down scroll buttons and a wider vertical scrollbar.
+# - Description and Developer fields now autosave while typing.
+# - Keeps the same BAT launch method:
 #       subprocess.Popen(f'start "" "{path}"', shell=True)
 
 import json
@@ -29,8 +32,8 @@ class BATLauncherDashboard(tk.Tk):
         super().__init__()
 
         self.title(APP_TITLE)
-        self.geometry("1650x850")
-        self.minsize(1250, 650)
+        self.geometry("1550x820")
+        self.minsize(1050, 620)
 
         self.items = []
         self.selected_bat = ""
@@ -93,14 +96,78 @@ class BATLauncherDashboard(tk.Tk):
             top,
             textvariable=self.search_var,
             width=55
-        ).pack(side="left", padx=5)
+        ).pack(side="left", padx=5, fill="x", expand=True)
 
-        # Header aligned with row grid
-        self.header_wrap = tk.Frame(self)
-        self.header_wrap.pack(fill="x", padx=12, pady=(10, 0))
+        # Main table area
+        table_outer = tk.Frame(self)
+        table_outer.pack(fill="both", expand=True, padx=12, pady=(10, 5))
 
-        self.header = tk.Frame(self.header_wrap)
-        self.header.pack(fill="x")
+        self.canvas = tk.Canvas(table_outer, borderwidth=0, highlightthickness=0)
+        self.table_frame = tk.Frame(self.canvas)
+
+        # Right-side scroll control panel:
+        # Up button + visible scrollbar + Down button.
+        scroll_panel = tk.Frame(table_outer)
+        scroll_panel.pack(side="right", fill="y")
+
+        self.scroll_up_btn = tk.Button(
+            scroll_panel,
+            text="▲",
+            width=3,
+            command=lambda: self.canvas.yview_scroll(-3, "units")
+        )
+        self.scroll_up_btn.pack(side="top", fill="x")
+
+        self.v_scrollbar = tk.Scrollbar(
+            scroll_panel,
+            orient="vertical",
+            command=self.canvas.yview,
+            width=22
+        )
+        self.v_scrollbar.pack(side="top", fill="y", expand=True)
+
+        self.scroll_down_btn = tk.Button(
+            scroll_panel,
+            text="▼",
+            width=3,
+            command=lambda: self.canvas.yview_scroll(3, "units")
+        )
+        self.scroll_down_btn.pack(side="bottom", fill="x")
+
+        self.h_scrollbar = tk.Scrollbar(table_outer, orient="horizontal", command=self.canvas.xview)
+
+        self.canvas.configure(
+            yscrollcommand=self.v_scrollbar.set,
+            xscrollcommand=self.h_scrollbar.set
+        )
+
+        self.h_scrollbar.pack(side="bottom", fill="x")
+        self.canvas.pack(side="left", fill="both", expand=True)
+
+        self.canvas_window = self.canvas.create_window((0, 0), window=self.table_frame, anchor="nw")
+
+        self.table_frame.bind(
+            "<Configure>",
+            lambda event: self.canvas.configure(scrollregion=self.canvas.bbox("all"))
+        )
+
+        self.canvas.bind("<Configure>", self.on_canvas_configure)
+        # Up/down scrolling for many GUI rows.
+        # Mouse wheel works when cursor is anywhere over the launcher window.
+        self.bind_all("<MouseWheel>", self.on_mousewheel)
+
+        # Keyboard scrolling support.
+        # Useful when no mouse is available.
+        self.bind_all("<Up>", self.on_key_scroll_up)
+        self.bind_all("<Down>", self.on_key_scroll_down)
+        self.bind_all("<Prior>", self.on_key_page_up)     # Page Up
+        self.bind_all("<Next>", self.on_key_page_down)    # Page Down
+        self.bind_all("<Home>", self.on_key_home)
+        self.bind_all("<End>", self.on_key_end)
+
+        # Header
+        self.header = tk.Frame(self.table_frame)
+        self.header.pack(fill="x", pady=(0, 6))
 
         self.configure_table_grid(self.header)
 
@@ -112,38 +179,8 @@ class BATLauncherDashboard(tk.Tk):
         self.make_header_label(self.header, "Rename", 5, "center")
         self.make_header_label(self.header, "Remove", 6, "center")
 
-        # Scrollable area
-        outer = tk.Frame(self)
-        outer.pack(fill="both", expand=True, padx=12, pady=5)
-
-        self.canvas = tk.Canvas(outer, borderwidth=0)
-        self.list_frame = tk.Frame(self.canvas)
-
-        self.v_scrollbar = tk.Scrollbar(outer, orient="vertical", command=self.canvas.yview)
-        self.h_scrollbar = tk.Scrollbar(outer, orient="horizontal", command=self.canvas.xview)
-
-        self.canvas.configure(
-            yscrollcommand=self.v_scrollbar.set,
-            xscrollcommand=self.h_scrollbar.set
-        )
-
-        self.v_scrollbar.pack(side="right", fill="y")
-        self.h_scrollbar.pack(side="bottom", fill="x")
-        self.canvas.pack(side="left", fill="both", expand=True)
-
-        self.canvas_window = self.canvas.create_window((0, 0), window=self.list_frame, anchor="nw")
-
-        self.list_frame.bind(
-            "<Configure>",
-            lambda event: self.canvas.configure(scrollregion=self.canvas.bbox("all"))
-        )
-
-        self.canvas.bind(
-            "<Configure>",
-            lambda event: self.canvas.itemconfig(self.canvas_window, width=event.width)
-        )
-
-        self.canvas.bind("<MouseWheel>", self.on_mousewheel)
+        self.rows_frame = tk.Frame(self.table_frame)
+        self.rows_frame.pack(fill="both", expand=True)
 
         # Bottom status
         bottom = tk.Frame(self, relief="groove", bd=1)
@@ -171,19 +208,16 @@ class BATLauncherDashboard(tk.Tk):
         self.status_label.pack(fill="x", padx=8, pady=2)
 
     def configure_table_grid(self, frame):
-        # Column layout:
-        # 0 run button fixed
-        # 1 description expanding strongly
-        # 2 developer expanding mildly
-        # 3 last used fixed
-        # 4/5/6 buttons fixed
-        frame.grid_columnconfigure(0, minsize=220, weight=0)
-        frame.grid_columnconfigure(1, minsize=620, weight=8)
-        frame.grid_columnconfigure(2, minsize=210, weight=2)
-        frame.grid_columnconfigure(3, minsize=170, weight=0)
-        frame.grid_columnconfigure(4, minsize=85, weight=0)
-        frame.grid_columnconfigure(5, minsize=85, weight=0)
-        frame.grid_columnconfigure(6, minsize=85, weight=0)
+        # Adjustable layout:
+        # Fixed-ish columns: Run, Last Used, Folder, Rename, Remove
+        # Expanding columns: Description strongly, Developer mildly
+        frame.grid_columnconfigure(0, minsize=210, weight=0)
+        frame.grid_columnconfigure(1, minsize=360, weight=8)
+        frame.grid_columnconfigure(2, minsize=170, weight=2)
+        frame.grid_columnconfigure(3, minsize=165, weight=0)
+        frame.grid_columnconfigure(4, minsize=80, weight=0)
+        frame.grid_columnconfigure(5, minsize=80, weight=0)
+        frame.grid_columnconfigure(6, minsize=80, weight=0)
 
     def make_header_label(self, parent, text, col, anchor):
         tk.Label(
@@ -193,8 +227,35 @@ class BATLauncherDashboard(tk.Tk):
             font=("Arial", 10, "bold")
         ).grid(row=0, column=col, sticky="ew", padx=4, pady=(0, 6))
 
+    def on_canvas_configure(self, event):
+        # Make the table match the visible window width.
+        # If window becomes smaller than natural table width, horizontal scrolling works.
+        self.canvas.itemconfig(self.canvas_window, width=max(event.width, 1145))
+        self.canvas.configure(scrollregion=self.canvas.bbox("all"))
+
     def on_mousewheel(self, event):
-        self.canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+        # Vertical up/down scrolling.
+        # Works for standard Windows mouse wheel.
+        if event.delta:
+            self.canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+
+    def on_key_scroll_up(self, event):
+        self.canvas.yview_scroll(-1, "units")
+
+    def on_key_scroll_down(self, event):
+        self.canvas.yview_scroll(1, "units")
+
+    def on_key_page_up(self, event):
+        self.canvas.yview_scroll(-1, "pages")
+
+    def on_key_page_down(self, event):
+        self.canvas.yview_scroll(1, "pages")
+
+    def on_key_home(self, event):
+        self.canvas.yview_moveto(0)
+
+    def on_key_end(self, event):
+        self.canvas.yview_moveto(1)
 
     # -----------------------------
     # Settings and autosave
@@ -247,9 +308,7 @@ class BATLauncherDashboard(tk.Tk):
         try:
             with open(self.autosave_file, "r", encoding="utf-8") as f:
                 data = json.load(f)
-
             self.items = self.normalize_items(data)
-
         except Exception as e:
             messagebox.showerror("Load Error", f"Could not load autosave JSON:\n{e}")
             self.items = []
@@ -408,7 +467,7 @@ class BATLauncherDashboard(tk.Tk):
         self.refresh_list()
 
     def refresh_list(self):
-        for widget in self.list_frame.winfo_children():
+        for widget in self.rows_frame.winfo_children():
             widget.destroy()
 
         query = self.search_var.get().lower().strip()
@@ -425,7 +484,7 @@ class BATLauncherDashboard(tk.Tk):
                 if query not in combined:
                     continue
 
-            row = tk.Frame(self.list_frame, bd=1, relief="solid", padx=6, pady=6)
+            row = tk.Frame(self.rows_frame, bd=1, relief="solid", padx=6, pady=6)
             row.pack(fill="x", expand=True, pady=4)
 
             self.configure_table_grid(row)
@@ -439,14 +498,18 @@ class BATLauncherDashboard(tk.Tk):
             run_btn.grid(row=0, column=0, sticky="ew", padx=4)
 
             desc_var = tk.StringVar(value=description)
-            desc_entry = tk.Entry(row, textvariable=desc_var)
-            desc_entry.grid(row=0, column=1, sticky="ew", padx=4)
+            desc_entry = tk.Entry(row, textvariable=desc_var, font=("Arial", 10))
+            desc_entry.grid(row=0, column=1, sticky="ew", padx=4, ipady=7)
+            # Save description automatically while typing, and also on Enter / focus-out.
+            desc_entry.bind("<KeyRelease>", lambda e, i=idx, v=desc_var: self.update_field(i, "description", v.get()))
             desc_entry.bind("<FocusOut>", lambda e, i=idx, v=desc_var: self.update_field(i, "description", v.get()))
             desc_entry.bind("<Return>", lambda e, i=idx, v=desc_var: self.update_field(i, "description", v.get()))
 
             dev_var = tk.StringVar(value=developer)
-            dev_entry = tk.Entry(row, textvariable=dev_var)
-            dev_entry.grid(row=0, column=2, sticky="ew", padx=4)
+            dev_entry = tk.Entry(row, textvariable=dev_var, font=("Arial", 10))
+            dev_entry.grid(row=0, column=2, sticky="ew", padx=4, ipady=7)
+            # Save developer automatically while typing, and also on Enter / focus-out.
+            dev_entry.bind("<KeyRelease>", lambda e, i=idx, v=dev_var: self.update_field(i, "developer", v.get()))
             dev_entry.bind("<FocusOut>", lambda e, i=idx, v=dev_var: self.update_field(i, "developer", v.get()))
             dev_entry.bind("<Return>", lambda e, i=idx, v=dev_var: self.update_field(i, "developer", v.get()))
 
@@ -489,7 +552,6 @@ class BATLauncherDashboard(tk.Tk):
             return
 
         try:
-            # Working method from your uploaded version
             subprocess.Popen(f'start "" "{path}"', shell=True)
 
             now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
